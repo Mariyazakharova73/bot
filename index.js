@@ -1,64 +1,75 @@
-const TelegramApi = require("node-telegram-bot-api");
-const { gameOptions, againOptions } = require("./options");
+const TelegramBot = require("node-telegram-bot-api");
+const express = require("express");
+const cors = require("cors");
 
 const token = "6641225691:AAFz2VCtCzwsoDHHD2D_Zt47mCJVRouJgn4";
+const webAppUrl = "https://admirable-kheer-397e9b.netlify.app";
 
-const bot = new TelegramApi(token, { polling: true });
+const bot = new TelegramBot(token, { polling: true });
 
-const chats = {};
+const app = express();
+app.use(express.json());
+app.use(cors());
 
-const startGame = async (chatId) => {
-  await bot.sendMessage(chatId, `Сейчас я загадаю цифру от 0 до 9, а ты должен ее отгадать`);
-  const randomNumber = Math.floor(Math.random() * 10);
-  chats[chatId] = randomNumber;
-  await bot.sendMessage(chatId, "Отгадывай", gameOptions);
-};
+bot.on("message", async (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text;
 
-const start = () => {
-  bot.setMyCommands([
-    { command: "/start", description: "Начальное приветствие" },
-    { command: "/info", description: "Получить информацию о пользователе" },
-    { command: "/game", description: "Игра: отгадай цифру" },
-  ]);
+  if (text === "/start") {
+    await bot.sendMessage(chatId, "Ниже появится кнопка, заполни форму", {
+      reply_markup: {
+        keyboard: [[{ text: "Заполнить форму", web_app: { url: webAppUrl + "/form" } }]],
+      },
+    });
+    await bot.sendMessage(chatId, "Заходи в наш интернет-магазин по кнопке ниже", {
+      reply_markup: {
+        inline_keyboard: [[{ text: "Сделать заказ", web_app: { url: webAppUrl } }]],
+      },
+    });
+  }
 
-  bot.on("message", async (msg) => {
-    const text = msg.text;
-    const chatId = msg.chat.id;
-    if (text === "/start") {
-      await bot.sendSticker(
-        chatId,
-        "https://tlgrm.ru/_/stickers/856/e5e/856e5e80-eee7-44bc-9e37-2cd3094eea49/1.webp"
-      );
-      return bot.sendMessage(chatId, `Добро пожаловать в телегам бот!`);
+  // данные с формы
+  if (msg?.web_app_data?.data) {
+    try {
+      const data = JSON.parse(msg?.web_app_data?.data);
+      await bot.sendMessage(chatId, "Спасибо за обратную связь!");
+      await bot.sendMessage(chatId, "Ваша страна: " + data?.country);
+      await bot.sendMessage(chatId, "Ваша улица: " + data?.street);
+
+      setTimeout(async () => {
+        await bot.sendMessage(chatId, "Всю информацию вы получите в этом чате ");
+      }, 3000);
+    } catch (e) {
+      console.log(e);
     }
+  }
+});
 
-    if (text === "/info") {
-      return bot.sendMessage(chatId, `Тебя зовут ${msg.from.first_name} ${msg.from.last_name}`);
-    }
+app.post("/web-data", async (req, res) => {
+  const { queryId, products, totalPrice } = req.body;
 
-    if (text === "/game") {
-      return startGame(chatId);
-    }
-    return bot.sendMessage(chatId, `Я тебя не понимаю, попробуй еще раз!`);
-  });
+  try {
+    await bot.answerWebAppQuery(queryId, {
+      type: "aticle",
+      id: queryId,
+      title: "Успешная покупка",
+      input_message_content: {
+        message_text: "Поздравляю с покупкой, вы приобрели товар на сумму " + totalPrice,
+      },
+    });
+    return res.status(200).json({})
+  } catch (e) {
+    await bot.answerWebAppQuery(queryId, {
+      type: "aticle",
+      id: queryId,
+      title: "Не удалось приобрести товар",
+      input_message_content: {
+        message_text: "Не удалось приобрести товар",
+      },
+    });
+    return res.status(500).json({})
+  }
+});
 
-  bot.on("callback_query", async (msg) => {
-    const data = msg.data;
-    const chatId = msg.message.chat.id;
-    if (data === "/again") {
-      return startGame(chatId);
-    }
-
-    if (data == chats[chatId]) {
-      return await bot.sendMessage(chatId, `Поздравляю, ты отгадал цифру ${chats[chatId]}`);
-    } else {
-      return await bot.sendMessage(
-        chatId,
-        `К сожалению ты не угадал, бот загадал цифру ${chats[chatId]}`,
-        againOptions
-      );
-    }
-  });
-};
-
-start();
+const PORT = 8000;
+app.listen(PORT, console.log("server started on PORT " + PORT));
